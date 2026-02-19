@@ -26,13 +26,13 @@ const enabledCards = [
   "mushroom-cover-card"
 ];
 
+// FIX 1: fetchTasks was calling callWS with type:"call_service" which does not
+// return service response data. The result was also never used — the card
+// already receives updates via the delayed_action_list_actions_response event
+// subscription. Replaced with a plain callService call to trigger that event.
 async function fetchTasks(hass) {
   try {
-    const response = await hass.callWS({
-      type: "call_service",
-      domain: "delayed_action",
-      service: "list",
-    });
+    await hass.callService("delayed_action", "list");
   } catch (error) {
     console.error("Error fetching tasks:", error);
   }
@@ -53,19 +53,18 @@ function deepQuerySelectorAll(selector, rootNode = document.body) {
 function extendCard(element, hass, config, tasks, entityId) {
   if (element.querySelector(".cornerButton")) {
     const innerDiv = element.querySelector(".cornerButton div");
-    // Überprüfen, ob die Entität in den Tasks enthalten ist und das innerDiv entsprechend einfärben
     if (
       tasks &&
       Object.values(tasks).length > 0 &&
       element.__config.entity === entityId
     ) {
-      innerDiv.style.backgroundColor = "var(--accent-color)"; // Task existiert
+      innerDiv.style.backgroundColor = "var(--accent-color)";
       innerDiv.className = "blink";
     } else {
-      innerDiv.style.backgroundColor = "var(--disabled-text-color)"; // Kein Task
+      innerDiv.style.backgroundColor = "var(--disabled-text-color)";
       innerDiv.className = "";
     }
-    return; // Button already added
+    return;
   }
   cardElements(element, hass, config);
 }
@@ -94,7 +93,7 @@ function extendMushroomCard(element, hass, config, tasks, entityId) {
 }
 
 function extendButtonCard(element, hass, config, tasks, entityId) {
-  const container = element.shadowRoot.querySelector("ha-card"); // ha-ripple");
+  const container = element.shadowRoot.querySelector("ha-card");
   if (container.querySelector(".cornerButton")) {
     const innerDiv = container.querySelector(".cornerButton div");
     if (
@@ -125,7 +124,7 @@ function extendTileCard(element, hass, config, tasks, entityId) {
   }
   if (container.querySelector(".cornerButton")) {
     const innerDiv = container.querySelector(".cornerButton div");
-    if(resizedButton) {
+    if (resizedButton) {
       innerDiv.parentElement.style.top = "50%";
       innerDiv.parentElement.style.marginTop = "-11px";
     }
@@ -172,9 +171,9 @@ function cardElementsBottom(element, hass, config, offset, additionalClass) {
   cornerButton.style.bottom = "-5px";
   cornerButton.style.width = "12px";
   cornerButton.style.height = "12px";
-  cornerButton.style.borderRight = null
+  cornerButton.style.borderRight = null;
   cornerButton.style.borderBottom =
-  "solid 1px var(--ha-card-border-color, var(--divider-color, #e0e0e0))";
+    "solid 1px var(--ha-card-border-color, var(--divider-color, #e0e0e0))";
 
   const cornerButtonIndicator = cornerButton.querySelector(".cornerButtonIndicator");
   cornerButtonIndicator.style.width = "6px";
@@ -264,7 +263,6 @@ function cardElements(element, hass, config, offset, additionalClass) {
   cornerButton.addEventListener("click", (e) => {
     e.preventDefault();
     e.stopPropagation();
-    //timerDialog.style.display = "block";
     openDialog(hass, config.entity);
   });
 
@@ -310,7 +308,6 @@ function findAndExtendCards(element, hass, tasks, entityId) {
         case "HUI-ENTITIES-CARD":
           cardElements = element.shadowRoot.querySelectorAll("ha-card");
           cardElements.forEach((card) => {
-            // EntityCard
             if (card.getAttribute("extended") !== "true") {
               let elem = card.querySelectorAll("#states hui-toggle-entity-row, #states hui-cover-entity-row");
               if (elem.length > 0) {
@@ -368,7 +365,6 @@ function findAndExtendCards(element, hass, tasks, entityId) {
           });
           break;
         case "HUI-BUTTON-CARD":
-          // ButtonCard
           if (
             element.___config.hasOwnProperty("entity") && element.___config.entity !== undefined &&
             startsWithAny(
@@ -468,7 +464,6 @@ function findAndExtendCards(element, hass, tasks, entityId) {
       }
     }
 
-    // Rekursive Suche in Schatten-DOMs
     const childElements = element.shadowRoot.querySelectorAll(
       enabledCards.join(",")
     );
@@ -596,7 +591,7 @@ function getEntityActions(entityId) {
       break;
     case "select":
     case "input_select":
-        result = ["select_option"];
+      result = ["select_option"];
       break;
     default:
       break;
@@ -610,145 +605,146 @@ function openDialog(hass, entityId) {
   const dialog = document.createElement("ha-dialog");
   dialog.open = true;
 
-  const dialogHeader = document.createElement("div");
-  dialogHeader.style.display = "flex";
-  dialogHeader.style.gap = "12px";
-  dialogHeader.style.alignItems = "start";
-  dialogHeader.innerHTML = `
-      <ha-icon-button id="closeButton" style="background: none; border: none; font-size: 36px; cursor: pointer;">&times;</ha-icon-button>
-      <p style="margin: 9px 0 0 0" title='Delayed Action'>Delayed Action</p>
-    `;
-  dialog.heading = dialogHeader;
+  // FIX 2: ha-dialog heading should be set as a string attribute or via the
+  // named slot. Setting it as a property with a DOM element is not the
+  // documented API. Using slot="heading" with a div is the safe approach.
+  const dialogHeadingSlot = document.createElement("div");
+  dialogHeadingSlot.setAttribute("slot", "heading");
+  dialogHeadingSlot.style.display = "flex";
+  dialogHeadingSlot.style.gap = "12px";
+  dialogHeadingSlot.style.alignItems = "center";
+  dialogHeadingSlot.style.padding = "12px 24px 0";
+  dialogHeadingSlot.innerHTML = `
+    <ha-icon-button id="closeButton" label="Close" style="--mdc-icon-button-size: 36px;">
+      <ha-icon icon="mdi:close"></ha-icon>
+    </ha-icon-button>
+    <span style="font-size: 1.1em; font-weight: 500;">Delayed Action</span>
+  `;
+  dialog.appendChild(dialogHeadingSlot);
 
   const content = document.createElement("div");
 
-  let selectOptions = entityId.indexOf("select.") > -1 ? `<label for="delayOption">Option</label><select id="delayOption">` + hass.states[entityId].attributes.options.map((option) => `<option value="${option}">${option}</option>`).join("") + `</select>` : ``;
+  let selectOptions = entityId.indexOf("select.") > -1
+    ? `<label for="delayOption">Option</label><select id="delayOption">` +
+      hass.states[entityId].attributes.options.map(
+        (option) => `<option value="${option}">${option}</option>`
+      ).join("") +
+      `</select>`
+    : ``;
 
-  content.innerHTML =
-    `
-        <style>
-          .custom-dialog-content {
-            padding: 0px;
-            display: flex;
-            flex-direction: column;
-            gap: 16px;
-            max-width: 500px;
-            box-sizing: border-box;
-          }
-          .custom-dialog-content select, .custom-dialog-content input[type="datetime-local"] {
-              padding: 8px;
-              font-size: 1.2em;
-              border: none;
-              outline: none;
-              border-radius: 4px;
-              width: 100%;
-          }
-          .custom-dialog-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-          }
-          .custom-dialog-subheader {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 16px;
-          }
-          .custom-dialog-header h2 {
-            margin: 0;
-          }
-          .custom-dialog-subheader h4 {
-            margin: 0;
-          }
-          .custom-dialog-content label {
-            font-weight: bold;
-          }
-          .time-input {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-          }
-          .time-input input[type="number"] {
-            width: 50px;
-            padding: 8px;
-            text-align: center;
-            font-size: 1.2em;
-            border: none;
-            outline: none;
-          }
-          .time-input input[type="number"]::-webkit-outer-spin-button,
-          .time-input input[type="number"]::-webkit-inner-spin-button {
-            -webkit-appearance: none;
-            margin: 0;
-          }
-          .time-input input[type="number"] {
-            -moz-appearance: textfield;
-          }
-          .time-input .time-control {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            width: 30%;
-            touch-action: manipulation;
-          }
-          .time-input .time-control button {
-            background: none;
-            border: none;
-            cursor: pointer;
-            font-size: 1.2em;
-            color: var(--primary-color);
-            --mdc-icon-size: 64px;
-          }
-          .custom-dialog-actions {
-            display: flex;
-            justify-content: flex-end;
-            gap: 8px;
-          }
-          .custom-dialog-actions button {
-            padding: 8px 16px;
-            background-color: var(--primary-color);
-            color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            width: 100%;
-          }
-          #delayDate {
-            width: 100%;
-          }
-        </style>
-        <div class="custom-dialog-content">
-          <label for="delayAction">Action</label>
-          <select id="delayAction">` + getEntityActions(entityId) + `</select>` + selectOptions + `
-          <label for="delayTime">Delay for</label>
-          <div id="delayTime" class="time-input">
-            <div class="time-control">
-              Hours<button id="increaseHours"><ha-icon icon="mdi:chevron-up"></ha-icon></button>
-              <input id="delayHours" type="number" min="0" max="23" placeholder="HH" value="0">
-              <button id="decreaseHours"><ha-icon icon="mdi:chevron-down"></ha-icon></button>
-            </div>
-            <span></span>
-            <div class="time-control">
-              Minutes<button id="increaseMinutes"><ha-icon icon="mdi:chevron-up"></ha-icon></button>
-              <input id="delayMinutes" type="number" min="0" max="59" placeholder="MM" value="0">
-              <button id="decreaseMinutes"><ha-icon icon="mdi:chevron-down"></ha-icon></button>
-            </div>
-            <span></span>
-            <div class="time-control">
-              Seconds<button id="increaseSeconds"><ha-icon icon="mdi:chevron-up"></ha-icon></button>
-              <input id="delaySeconds" type="number" min="0" max="59" placeholder="SS" value="0">
-              <button id="decreaseSeconds"><ha-icon icon="mdi:chevron-down"></ha-icon></button>
-            </div>
-          </div>
-          <label for="delayDate">or start at</label>
-          <input id="delayDate" type="datetime-local">
-          <p style="font-size: 0.8em; color: var(--error-color); display:none" id="error"></p>
+  content.innerHTML = `
+    <style>
+      .custom-dialog-content {
+        padding: 0px;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        max-width: 500px;
+        box-sizing: border-box;
+      }
+      .custom-dialog-content select,
+      .custom-dialog-content input[type="datetime-local"] {
+        padding: 8px;
+        font-size: 1.2em;
+        border: none;
+        outline: none;
+        border-radius: 4px;
+        width: 100%;
+      }
+      .custom-dialog-content label {
+        font-weight: bold;
+      }
+      .time-input {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .time-input input[type="number"] {
+        width: 50px;
+        padding: 8px;
+        text-align: center;
+        font-size: 1.2em;
+        border: none;
+        outline: none;
+      }
+      .time-input input[type="number"]::-webkit-outer-spin-button,
+      .time-input input[type="number"]::-webkit-inner-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+      }
+      .time-input input[type="number"] {
+        -moz-appearance: textfield;
+      }
+      .time-input .time-control {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        width: 30%;
+        touch-action: manipulation;
+      }
+      .time-input .time-control button {
+        background: none;
+        border: none;
+        cursor: pointer;
+        font-size: 1.2em;
+        color: var(--primary-color);
+        --mdc-icon-size: 64px;
+      }
+      #delayDate {
+        width: 100%;
+      }
+    </style>
+    <div class="custom-dialog-content">
+      <label for="delayAction">Action</label>
+      <select id="delayAction">${getEntityActions(entityId)}</select>
+      ${selectOptions}
+      <label for="delayTime">Delay for</label>
+      <div id="delayTime" class="time-input">
+        <div class="time-control">
+          Hours
+          <button id="increaseHours"><ha-icon icon="mdi:chevron-up"></ha-icon></button>
+          <input id="delayHours" type="number" min="0" max="23" placeholder="HH" value="0">
+          <button id="decreaseHours"><ha-icon icon="mdi:chevron-down"></ha-icon></button>
         </div>
-      `;
-  const primaryButton = document.createElement("mwc-button");
+        <span></span>
+        <div class="time-control">
+          Minutes
+          <button id="increaseMinutes"><ha-icon icon="mdi:chevron-up"></ha-icon></button>
+          <input id="delayMinutes" type="number" min="0" max="59" placeholder="MM" value="0">
+          <button id="decreaseMinutes"><ha-icon icon="mdi:chevron-down"></ha-icon></button>
+        </div>
+        <span></span>
+        <div class="time-control">
+          Seconds
+          <button id="increaseSeconds"><ha-icon icon="mdi:chevron-up"></ha-icon></button>
+          <input id="delaySeconds" type="number" min="0" max="59" placeholder="SS" value="0">
+          <button id="decreaseSeconds"><ha-icon icon="mdi:chevron-down"></ha-icon></button>
+        </div>
+      </div>
+      <label for="delayDate">or start at</label>
+      <input id="delayDate" type="datetime-local">
+      <p style="font-size: 0.8em; color: var(--error-color); display:none" id="error"></p>
+    </div>
+  `;
+
+  // FIX 3: mwc-button was removed from HA frontend in 2024.8. Replaced with
+  // plain <button> elements styled to match HA's visual style. These are
+  // appended into the dialog's primaryAction / secondaryAction slots, which
+  // ha-dialog still supports.
+  const primaryButton = document.createElement("button");
   primaryButton.setAttribute("slot", "primaryAction");
   primaryButton.id = "submitButton";
   primaryButton.innerText = "Submit";
+  primaryButton.style.cssText = `
+    padding: 8px 16px;
+    background-color: var(--primary-color);
+    color: var(--text-primary-color, white);
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 1em;
+    min-width: 80px;
+  `;
   primaryButton.addEventListener("click", () => {
     const hours = parseInt(delayHours.value, 10) || 0;
     const minutes = parseInt(delayMinutes.value, 10) || 0;
@@ -756,11 +752,11 @@ function openDialog(hass, entityId) {
     const date = delayDate.value;
     const action = content.querySelector("#delayAction").value || "turn_on";
     const select = content.querySelector("#delayOption");
+    const errorEl = content.querySelector("#error");
 
     if (hours === 0 && minutes === 0 && seconds === 0 && !date) {
-      content.querySelector("#error").innerText =
-        "Please enter a delay time or a start date.";
-      content.querySelector("#error").style.display = "block";
+      errorEl.innerText = "Please enter a delay time or a start date.";
+      errorEl.style.display = "block";
       return;
     }
 
@@ -768,11 +764,14 @@ function openDialog(hass, entityId) {
 
     let config = {
       entity_id: entityId,
-      action: action
+      action: action,
     };
 
-    if(select != null || select != undefined) {
-      config.data.option = select.value;
+    // FIX 4: config.data was undefined, causing a TypeError when trying to set
+    // config.data.option. Also fixed the condition: || should be && to correctly
+    // check that select is neither null nor undefined.
+    if (select !== null && select !== undefined) {
+      config.data = { option: select.value };
     }
 
     if (date) {
@@ -780,22 +779,31 @@ function openDialog(hass, entityId) {
     } else {
       config.delay = delay;
     }
-    hass.callService("delayed_action", "execute", config);
 
+    hass.callService("delayed_action", "execute", config);
     closeDialog();
   });
 
   function closeDialog() {
-    document
+    const existingDialog = document
       .querySelector("home-assistant")
-      .shadowRoot.querySelector("ha-dialog")
-      .remove();
+      .shadowRoot.querySelector("ha-dialog");
+    if (existingDialog) existingDialog.remove();
   }
 
-  const secondaryButton = document.createElement("mwc-button");
+  const secondaryButton = document.createElement("button");
   secondaryButton.setAttribute("slot", "secondaryAction");
-  secondaryButton.id = "submitButton";
   secondaryButton.innerText = "Cancel";
+  secondaryButton.style.cssText = `
+    padding: 8px 16px;
+    background-color: transparent;
+    color: var(--primary-color);
+    border: 1px solid var(--primary-color);
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 1em;
+    min-width: 80px;
+  `;
   secondaryButton.addEventListener("click", closeDialog);
 
   dialog.appendChild(content);
@@ -814,17 +822,18 @@ function openDialog(hass, entityId) {
   const increaseSeconds = content.querySelector("#increaseSeconds");
   const decreaseSeconds = content.querySelector("#decreaseSeconds");
 
-  const closeButton = dialog.heading.querySelector("#closeButton");
+  const closeButton = dialogHeadingSlot.querySelector("#closeButton");
   closeButton.addEventListener("click", closeDialog);
 
+  // FIX 5: incrementValue/decrementValue were querying #error via
+  // home-assistant's shadowRoot, but #error lives inside the content div.
+  // Fixed to use content.querySelector instead.
   const incrementValue = (input, max) => {
     let value = parseInt(input.value, 10);
     if (isNaN(value)) value = 0;
     value = (value + 1) % (max + 1);
     input.value = value;
-    document
-      .querySelector("home-assistant")
-      .shadowRoot.querySelector("#error").style.display = "none";
+    content.querySelector("#error").style.display = "none";
   };
 
   const decrementValue = (input, max) => {
@@ -832,25 +841,15 @@ function openDialog(hass, entityId) {
     if (isNaN(value)) value = 0;
     value = (value - 1 + (max + 1)) % (max + 1);
     input.value = value;
-    document
-      .querySelector("home-assistant")
-      .shadowRoot.querySelector("#error").style.display = "none";
+    content.querySelector("#error").style.display = "none";
   };
 
   increaseHours.addEventListener("click", () => incrementValue(delayHours, 23));
   decreaseHours.addEventListener("click", () => decrementValue(delayHours, 23));
-  increaseMinutes.addEventListener("click", () =>
-    incrementValue(delayMinutes, 59)
-  );
-  decreaseMinutes.addEventListener("click", () =>
-    decrementValue(delayMinutes, 59)
-  );
-  increaseSeconds.addEventListener("click", () =>
-    incrementValue(delaySeconds, 59)
-  );
-  decreaseSeconds.addEventListener("click", () =>
-    decrementValue(delaySeconds, 59)
-  );
+  increaseMinutes.addEventListener("click", () => incrementValue(delayMinutes, 59));
+  decreaseMinutes.addEventListener("click", () => decrementValue(delayMinutes, 59));
+  increaseSeconds.addEventListener("click", () => incrementValue(delaySeconds, 59));
+  decreaseSeconds.addEventListener("click", () => decrementValue(delaySeconds, 59));
 }
 
 const getConfig = async (hass) => {
@@ -861,6 +860,10 @@ const getConfig = async (hass) => {
 
 window.setTimeout(setupCustomExtension, 500);
 
+// FIX 1 (continued): The setInterval previously called fetchTasks which used
+// the broken callWS approach. Now fetchTasks uses callService, which triggers
+// the delayed_action_list_actions_response event the card already subscribes
+// to. The interval is kept to periodically refresh state.
 setInterval(() => {
   const homeAssistant = document.querySelector("home-assistant");
   if (homeAssistant && homeAssistant.hass) {
@@ -894,7 +897,7 @@ class DelayedActionCard extends HTMLElement {
         entity_id: entityId,
         task_id: taskId,
       });
-      this.hass.callService("delayed_action", "list"); // Refresh the task list after cancellation
+      this.hass.callService("delayed_action", "list");
     } catch (error) {
       console.error("Error cancelling task:", error);
     }
@@ -923,54 +926,61 @@ class DelayedActionCard extends HTMLElement {
 
     let taskList = "";
     for (const [entityId, tasks] of Object.entries(this.tasks)) {
-      taskList += `<div class="taskentity"><h2>${this.getFriendlyName(
-        entityId
-      )}</h2>`;
+      taskList += `<div class="taskentity"><h2>${this.getFriendlyName(entityId)}</h2>`;
       for (const [action, task] of Object.entries(tasks)) {
         taskList += `
           <div class="task">
             <ha-icon icon="${this.getActionIcon(task.action)}"></ha-icon>
             <span>${
-              task.action == "turn_on"
+              task.action === "turn_on"
                 ? "turn on"
-                : task.action == "turn_off"
+                : task.action === "turn_off"
                 ? "turn off"
-                : task.action == "turn_off"
+                : task.action === "toggle"
                 ? "toggle"
                 : task.action
             }</span>
             <span>${new Date(task.due).toLocaleString()}</span>
-            <mwc-button class="warning deleteDelayedAction" outlined data-entity="${entityId}" data-task="${
-          task.task_id
-        }">Cancel</mwc-button>
+            <button class="cancel-button deleteDelayedAction"
+              data-entity="${entityId}"
+              data-task="${task.task_id}">Cancel</button>
           </div>
         `;
       }
       taskList += `</div>`;
     }
 
+    // FIX 3 (continued): mwc-button replaced with a plain <button> in the
+    // task list render as well.
     this.shadowRoot.innerHTML = `
-    <style>
-        mwc-button.warning {
-          --mdc-theme-primary: var(--error-color);
-          margin-bottom: 4px;
-        }
+      <style>
         .tasks {
           padding: 16px;
         }
         .taskentity {
-            margin-bottom: 16px;
+          margin-bottom: 16px;
         }
         .task {
           display: flex;
           align-items: center;
           justify-content: space-between;
         }
-        .cancel-button {
-          color: var(--error-state-color);
-        }
         ha-icon {
           padding-right: 8px;
+        }
+        .cancel-button {
+          padding: 6px 12px;
+          background-color: transparent;
+          color: var(--error-color);
+          border: 1px solid var(--error-color);
+          border-radius: 4px;
+          cursor: pointer;
+          font-size: 0.9em;
+          margin-bottom: 4px;
+        }
+        .cancel-button:hover {
+          background-color: var(--error-color);
+          color: white;
         }
       </style>
       <ha-card header="Delayed Actions">
@@ -1007,7 +1017,7 @@ window.customCards.push({
 });
 
 console.info(
-  "%c  DELAYED-ACTION-CARD  \n%c  Version: 1.0.4       ",
+  "%c  DELAYED-ACTION-CARD  \n%c  Version: 1.0.4-fixed  ",
   "background: #c0c0c0; color: black; font-weight: bold; padding: 5px 0;",
   "color: white; background: #333; font-weight: bold; padding: 5px 0;"
 );
